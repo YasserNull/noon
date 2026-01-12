@@ -28,6 +28,7 @@ typedef struct Node {
   Token token; // Stores the original token for location/value info.
   union {
     double number_value;
+    char *char_value;
     char *string_value;
     bool boolean_value;
 

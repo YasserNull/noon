@@ -8,6 +8,8 @@
 
 #include "parser/ast.h"
 
+Node *parse_statement(void);
+
 // Declarations for functions that parse expressions based on operator
 // precedence.
 Node *parse_or(void);

@@ -13,7 +13,6 @@
 typedef enum {
   TOKEN_CHAR,
   TOKEN_STRING,
-  TOKEN_BOOLEAN,
   TOKEN_NULL,
 
   TOKEN_INT,
@@ -23,6 +22,7 @@ typedef enum {
   TOKEN_HEX,
   TOKEN_TRUE,
   TOKEN_FALSE,
+  
 
   TOKEN_IDENTIFIER,
   TOKEN_KEYWORD,

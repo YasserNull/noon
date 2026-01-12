@@ -14,6 +14,22 @@
 #include <stdlib.h>
 #include <string.h>
 
+static const char *node_type_to_string(Node *node, NodeType type) {
+  if (type == NODE_NUMBER) {
+    if (node) {
+      return token_type_to_string(node->token.token_type);
+    }
+    return "number";
+  }
+
+  switch (type) {
+  case NODE_STRING:  return "string";
+  case NODE_CHAR:    return "char";
+  case NODE_BOOLEAN: return "boolean";
+  case NODE_NULL:    return "null";
+  default:           return "unknown";
+  }
+}
 // Creates a number node for the AST.
 Node *create_number_node(Token token, double value) {
   debug_func("");
@@ -27,20 +43,42 @@ Node *create_number_node(Token token, double value) {
 // Creates a character literal node for the AST.
 Node *create_char_node(Token token, const char *value) {
   debug_func("");
+
   Node *node = safe_malloc(sizeof(Node));
   node->node_type = NODE_CHAR;
   node->token = token;
-  node->string_value = safe_strdup(value);
+
+  // value = "'a'" → store "a"
+  size_t len = strlen(value);
+  if (len >= 2) {
+    node->char_value = safe_malloc(len - 1);
+    memcpy(node->char_value, value + 1, len - 2);
+    node->char_value[len - 2] = '\0';
+  } else {
+    node->char_value = safe_strdup("");
+  }
+
   return node;
 }
 
 // Creates a string literal node for the AST.
 Node *create_string_node(Token token, const char *value) {
   debug_func("");
+
   Node *node = safe_malloc(sizeof(Node));
   node->node_type = NODE_STRING;
   node->token = token;
-  node->string_value = safe_strdup(value);
+
+  // value = "\"abc\"" → store "abc"
+  size_t len = strlen(value);
+  if (len >= 2) {
+    node->string_value = safe_malloc(len - 1);
+    memcpy(node->string_value, value + 1, len - 2);
+    node->string_value[len - 2] = '\0';
+  } else {
+    node->string_value = safe_strdup("");
+  }
+
   return node;
 }
 
@@ -66,30 +104,67 @@ Node *create_null_node(Token token) {
 // Helper function to determine the type of a sub-expression for type checking.
 static NodeType get_expression_type(Node *node) {
   debug_func("");
-  if (!node) {
+
+  if (!node)
+    return NODE_NULL;
+
+  switch (node->node_type) {
+
+  case NODE_NUMBER:
+    return NODE_NUMBER;
+
+  case NODE_CHAR:
+  return NODE_CHAR;
+  case NODE_STRING:
+    return NODE_STRING;
+
+  case NODE_BOOLEAN:
+    return NODE_BOOLEAN;
+
+  case NODE_NULL:
+    return NODE_NULL;
+
+  case NODE_UNARY_OP:
+  case NODE_POSTFIX_OP:
+    return get_expression_type(node->unary.operand);
+
+  case NODE_BINARY_OP: {
+    NodeType left_type  = get_expression_type(node->binary.left);
+    NodeType right_type = get_expression_type(node->binary.right);
+    TokenType op        = node->binary.op.token_type;
+
+    // number op number
+    if (left_type == NODE_NUMBER && right_type == NODE_NUMBER)
+      return NODE_NUMBER;
+
+    // string + string
+    if ((left_type == NODE_STRING || left_type == NODE_CHAR) &&
+        (right_type == NODE_STRING || right_type == NODE_CHAR) &&
+        op == TOKEN_PLUS)
+      return NODE_STRING;
+
+    // string * number OR number * string
+    if (op == TOKEN_STAR) {
+      if ((left_type == NODE_STRING || left_type == NODE_CHAR) &&
+          right_type == NODE_NUMBER)
+        return NODE_STRING;
+
+      if (left_type == NODE_NUMBER &&
+          (right_type == NODE_STRING || right_type == NODE_CHAR))
+        return NODE_STRING;
+    }
+
+    // comparisons always return number (0/1)
+    if (op == TOKEN_EQEQUAL || op == TOKEN_NOTEQUAL ||
+        op == TOKEN_LESS || op == TOKEN_LESSEQUAL ||
+        op == TOKEN_GREATER || op == TOKEN_GREATEREQUAL)
+      return NODE_NUMBER;
+
     return NODE_NULL;
   }
 
-  switch (node->node_type) {
-  case NODE_NUMBER: return NODE_NUMBER;
-  case NODE_STRING:
-  case NODE_CHAR: return NODE_STRING;
-  case NODE_BOOLEAN: return NODE_BOOLEAN;
-  case NODE_NULL: return NODE_NULL;
-  case NODE_UNARY_OP:
-  case NODE_POSTFIX_OP: return get_expression_type(node->unary.operand);
-  case NODE_BINARY_OP: {
-    // For arithmetic operations, the result type is the common type.
-    NodeType left_type = get_expression_type(node->binary.left);
-    NodeType right_type = get_expression_type(node->binary.right);
-
-    if (left_type == NODE_NUMBER && right_type == NODE_NUMBER)
-      return NODE_NUMBER;
-    if ((left_type == NODE_STRING || left_type == NODE_CHAR) && (right_type == NODE_STRING || right_type == NODE_CHAR))
-      return NODE_STRING;
-    return NODE_NULL; // Incompatible types.
-  }
-  default: return node->node_type;
+  default:
+    return node->node_type;
   }
 }
 
@@ -98,36 +173,68 @@ Node *create_binary_op_node(Token op, Node *left, Node *right) {
   debug_func("");
 
   if (!left || !right) {
-    if (left)
-      free_node(left);
-    if (right)
-      free_node(right);
+    free_node(left);
+    free_node(right);
     return NULL;
   }
 
-  NodeType left_type = get_expression_type(left);
+  NodeType left_type  = get_expression_type(left);
   NodeType right_type = get_expression_type(right);
 
-  bool is_left_numeric = (left_type == NODE_NUMBER);
+  bool is_left_numeric  = (left_type == NODE_NUMBER);
   bool is_right_numeric = (right_type == NODE_NUMBER);
 
-  bool is_left_stringy = (left_type == NODE_STRING || left_type == NODE_CHAR);
+  bool is_left_stringy  = (left_type == NODE_STRING || left_type == NODE_CHAR);
   bool is_right_stringy = (right_type == NODE_STRING || right_type == NODE_CHAR);
+
+bool is_left_bool  = (left_type == NODE_BOOLEAN);
+bool is_right_bool = (right_type == NODE_BOOLEAN);
+
+bool is_left_numlike  = is_left_numeric || is_left_bool;
+bool is_right_numlike = is_right_numeric || is_right_bool;
 
   bool is_valid = false;
 
-  // Check if the operator is valid for the given operand types.
+  // -----------------------------------------
+  // شرطك الأساسي:
+  // نص + حرف مسموح فقط مع (+)
+  // -----------------------------------------
+  if ((left_type == NODE_STRING && right_type == NODE_CHAR) ||
+      (left_type == NODE_CHAR   && right_type == NODE_STRING))
+  {
+      if (op.token_type == TOKEN_PLUS) {
+          is_valid = true;   // ✔ دمج فقط
+      } else {
+          is_valid = false;  // ❌ أي عملية أخرى
+      }
+      goto end_validation;
+  }
+
+
   switch (op.token_type) {
+
   case TOKEN_PLUS:
-    // '+' is valid for number+number or string+string.
-    if ((is_left_numeric && is_right_numeric) || (is_left_stringy && is_right_stringy)) {
+    // number + number OR string/char + string/char
+    if ((is_left_numeric && is_right_numeric) ||
+        (is_left_stringy && is_right_stringy)) {
       is_valid = true;
     }
     break;
 
-  // These operators are only valid for numbers.
-  case TOKEN_MINUS:
   case TOKEN_STAR:
+    // number * number
+    // string * number
+    // number * string
+    // char * number   ✔ مسموح
+    // number * char   ✔ مسموح
+    if ((is_left_numeric && is_right_numeric) ||
+        (is_left_stringy && is_right_numeric) ||
+        (is_left_numeric && is_right_stringy)) {
+      is_valid = true;
+    }
+    break;
+
+  case TOKEN_MINUS:
   case TOKEN_SLASH:
   case TOKEN_DOUBLEPERCENT:
   case TOKEN_PERCENT:
@@ -137,32 +244,39 @@ Node *create_binary_op_node(Token op, Node *left, Node *right) {
   case TOKEN_AMPERSAND:
   case TOKEN_CARET:
   case TOKEN_PIPE:
-    if (is_left_numeric && is_right_numeric) {
+    if (is_left_numeric && is_right_numeric)
       is_valid = true;
-    }
     break;
 
-  // Comparison operators are valid for number/number or string/string.
-  case TOKEN_EQEQUAL:
-  case TOKEN_NOTEQUAL:
-  case TOKEN_LESS:
-  case TOKEN_LESSEQUAL:
-  case TOKEN_GREATER:
-  case TOKEN_GREATEREQUAL:
-    if ((is_left_numeric && is_right_numeric) || (is_left_stringy && is_right_stringy)) {
-      is_valid = true;
+case TOKEN_EQEQUAL:
+case TOKEN_NOTEQUAL:
+case TOKEN_LESS:
+case TOKEN_LESSEQUAL:
+case TOKEN_GREATER:
+case TOKEN_GREATEREQUAL:
+
+    // دعم: رقم ↔ bool
+    // numlike = number أو bool
+    if (is_left_numlike && is_right_numlike) {
+        is_valid = true;
+        break;
     }
+
+    // string/string أو char/char
+    if (left_type == right_type &&
+        (left_type == NODE_STRING || left_type == NODE_CHAR)) {
+        is_valid = true;
+        break;
+    }
+
     break;
 
-  // Logical operators.
   case TOKEN_AND:
   case TOKEN_OR:
-    if (is_left_numeric && is_right_numeric) {
+    if (is_left_numeric && is_right_numeric)
       is_valid = true;
-    }
     break;
 
-  // Assignment operators.
   case TOKEN_EQUAL:
   case TOKEN_PLUSEQUAL:
   case TOKEN_MINEQUAL:
@@ -176,36 +290,42 @@ Node *create_binary_op_node(Token op, Node *left, Node *right) {
   case TOKEN_RIGHTSHIFTEQUAL:
   case TOKEN_DOUBLESTAREQUAL:
   case TOKEN_DOUBLEPERCENTEQUAL:
-    if ((is_left_numeric && is_right_numeric) || (is_left_stringy && is_right_stringy)) {
+    if ((is_left_numeric && is_right_numeric) ||
+        (is_left_stringy && is_right_stringy)) {
       is_valid = true;
     }
     break;
 
-  default: break;
+  default:
+    break;
   }
 
-  // If the operation is not valid, report a type error.
+
+end_validation:
+
   if (!is_valid) {
     if (!ctx->has_syntax_error) {
       ctx->has_syntax_error = 1;
-      const char *left_str = token_type_to_string(left->token.token_type);
-      const char *right_str = token_type_to_string(right->token.token_type);
+      NodeType left_expr_type  = get_expression_type(left);
+      NodeType right_expr_type = get_expression_type(right);
+      const char *left_str  = node_type_to_string(left,  left_expr_type);
+      const char *right_str = node_type_to_string(right, right_expr_type);
 
       print_log(
-          LOG_ERROR, ERR_TYPE_OP_NOT_SUPPORTED, (LogPosition){op.token_line, op.token_index + 1}, op.token_value, op.token_value, left_str ? left_str : "unknown", right_str ? right_str : "unknown");
+        LOG_ERROR,
+        ERR_TYPE_OP_NOT_SUPPORTED,
+        (LogPosition){op.token_line, op.token_index + 1},
+        op.token_value,
+        op.token_value,
+        left_str,
+        right_str
+      );
     }
 
     return NULL;
   }
 
-  // Create and return the new binary operation node.
   Node *node = safe_malloc(sizeof(Node));
-  if (!node) {
-    free_node(left);
-    free_node(right);
-    return NULL;
-  }
-
   node->node_type = NODE_BINARY_OP;
   node->binary.left = left;
   node->binary.right = right;
@@ -213,7 +333,6 @@ Node *create_binary_op_node(Token op, Node *left, Node *right) {
 
   return node;
 }
-
 // Creates a unary (prefix) operation node for the AST.
 Node *create_unary_op_node(Token op, Node *operand) {
   debug_func("");
@@ -263,7 +382,10 @@ void free_node(Node *node) {
   }
 
   // Free string value for string/char nodes.
-  if ((node->node_type == NODE_STRING || node->node_type == NODE_CHAR) && node->string_value) {
+  if (node->node_type == NODE_CHAR && node->char_value) {
+    free(node->char_value);
+    node->char_value = NULL;
+  } else if (node->node_type == NODE_STRING && node->string_value) {
     free(node->string_value);
     node->string_value = NULL;
   }
@@ -283,7 +405,7 @@ static void print_node_value(Node *node) {
 
   switch (node->node_type) {
   case NODE_NUMBER: printf("%g", node->number_value); break;
-  case NODE_CHAR:
+  case NODE_CHAR:printf("%s", node->char_value); break;
   case NODE_STRING: printf("%s", node->string_value); break;
   case NODE_BOOLEAN: printf("%s", node->boolean_value ? "true" : "false"); break;
   case NODE_NULL: printf("null"); break;

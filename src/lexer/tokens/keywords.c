@@ -1,35 +1,113 @@
 // lexer/tokens/keywords.c
-// This file defines the language's keywords and provides a function
-// to check if a given identifier string is a keyword.
+// This file defines the language's keywords and provides helper functions
+// to classify identifiers as either value-keywords (literals) or
+// syntax-keywords (language constructs).
 
 #include "lexer/tokens.h"
 #include "utils/log.h"
 #include <stdbool.h>
 #include <string.h>
 
-// A struct to map keyword strings to their token types.
+/* ============================================================
+ * Syntax Keywords (language constructs, no intrinsic value)
+ * ------------------------------------------------------------
+ * These keywords affect parsing decisions. They must take
+ * priority over identifiers.
+ * ============================================================ */
+
+typedef enum {
+	KEYWORD_CONST,
+	KEYWORD_VOID,
+  KEYWORD_INT,
+  KEYWORD_FLOAT,
+  KEYWORD_BOOL,
+  KEYWORD_CHAR,
+  KEYWORD_STRING
+} KeywordType;
+
+typedef struct {
+  const char *word;
+  KeywordType type;
+} SyntaxKeywordEntry;
+
+static const SyntaxKeywordEntry SYNTAX_KEYWORDS[] = {
+    {"const", KEYWORD_CONST},
+    {"void", KEYWORD_VOID},
+    {"int",   KEYWORD_INT},
+    {"float",  KEYWORD_FLOAT},
+    {"bool", KEYWORD_BOOL},
+    {"char", KEYWORD_CHAR},
+    {"string", KEYWORD_STRING},
+};
+
+static const int NUM_SYNTAX_KEYWORDS =
+    (int)(sizeof(SYNTAX_KEYWORDS) / sizeof(SYNTAX_KEYWORDS[0]));
+
+bool is_syntax_keyword(const char *word, KeywordType *out_type) {
+  debug_func("%s", word);
+
+  if (!word)
+    return false;
+
+  for (int i = 0; i < NUM_SYNTAX_KEYWORDS; i++) {
+    if (strcmp(word, SYNTAX_KEYWORDS[i].word) == 0) {
+      if (out_type)
+        *out_type = SYNTAX_KEYWORDS[i].type;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/* ============================================================
+ * Value Keywords (have intrinsic values)
+ * ------------------------------------------------------------
+ * These keywords behave like literals and are emitted directly
+ * as their corresponding TokenType by the lexer.
+ * ============================================================ */
+
 typedef struct {
   const char *word;
   TokenType type;
-} KeywordEntry;
+} ValueKeywordEntry;
 
-// The table of all keywords in the language.
-static const KeywordEntry KEYWORDS[] = {{"bool", TOKEN_BOOLEAN}, {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE}, {"null", TOKEN_NULL}};
+static const ValueKeywordEntry VALUE_KEYWORDS[] = {
+    {"true",  TOKEN_TRUE},
+    {"false", TOKEN_FALSE},
+    {"null",  TOKEN_NULL},
+};
 
-static const int NUM_KEYWORDS = sizeof(KEYWORDS) / sizeof(KEYWORDS[0]);
+static const int NUM_VALUE_KEYWORDS =
+    (int)(sizeof(VALUE_KEYWORDS) / sizeof(VALUE_KEYWORDS[0]));
 
-// Looks up a string in the keyword table.
-// Returns the corresponding TokenType if found, otherwise returns
-// TOKEN_IDENTIFIER.
+/* ============================================================
+ * Keyword Classification (lexer entry point)
+ * ------------------------------------------------------------
+ * Priority order:
+ * 1) Syntax keyword  -> TOKEN_KEYWORD
+ * 2) Value keyword   -> literal token
+ * 3) Otherwise       -> TOKEN_IDENTIFIER
+ * ============================================================ */
+
 TokenType get_keyword_type(const char *word) {
   debug_func("%s", word);
+
   if (!word)
     return TOKEN_IDENTIFIER;
 
-  for (int i = 0; i < NUM_KEYWORDS; i++) {
-    if (strcmp(word, KEYWORDS[i].word) == 0) {
-      return KEYWORDS[i].type;
+  // 1) Syntax keywords have highest priority
+  if (is_syntax_keyword(word, NULL)) {
+    return TOKEN_KEYWORD;
+  }
+
+  // 2) Value keywords (true, false, null)
+  for (int i = 0; i < NUM_VALUE_KEYWORDS; i++) {
+    if (strcmp(word, VALUE_KEYWORDS[i].word) == 0) {
+      return VALUE_KEYWORDS[i].type;
     }
   }
-  return TOKEN_IDENTIFIER; // default if not a keyword
+
+  // 3) Regular identifier
+  return TOKEN_IDENTIFIER;
 }

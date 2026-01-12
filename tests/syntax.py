@@ -17,6 +17,40 @@ def check(cmd_list, expected_line):
         print("Got output:\n" + result)
         sys.exit(1)
 
+def check_repl(cmd_list, expected_line):
+    try:
+        output = subprocess.run(
+            cmd_list,
+            capture_output=True,
+            text=True
+        )
+        result = output.stderr + output.stdout
+    except Exception as e:
+        result = str(e)
+
+    # شوف الناتج الخام (مهم وقت debugging)
+    # print("RAW OUTPUT:\n", repr(result))
+
+    lines = result.splitlines()
+
+    # خذ فقط الأسطر اللي:
+    # - مو فاضية
+    # - مو prompt
+    filtered = [
+        line for line in lines
+        if line.strip() != "" and not line.strip().startswith(">>>")
+    ]
+
+    filtered_output = "\n".join(filtered)
+
+    if expected_line in filtered_output:
+        print("PASS")
+    else:
+        print(f"FAIL {cmd_list}")
+        print(f"Expected somewhere: {expected_line}")
+        print("Got output:\n" + filtered_output)
+        sys.exit(1)
+        
 print("Strings\n") 
 check(["build/noon", "-c", "'"], "<string>:1:1: error: unclosed char `'`")
 check(["build/noon", "-c", '"'], "<string>:1:1: error: unclosed string `\"`")
@@ -94,4 +128,76 @@ check(["build/noon", "-c", "*1"], "<string>:1:1: error: expected value before op
 check(["build/noon", "-c", "1+'6'"], "<string>:1:3: error: operator `+` not supported between integer and char")
 check(["build/noon", "-c", "1+\"1\""], "<string>:1:3: error: operator `+` not supported between integer and string")
 
-print("\nRepl\n")
+print("\nNumbers\n")
+ 
+check_repl(["build/noon", "-rp", "-c", "0"], "0");
+check_repl(["build/noon", "-rp", "-c", "1"], "1");
+check_repl(["build/noon", "-rp", "-c", "-1"], "-1");
+check_repl(["build/noon", "-rp", "-c", "+1"], "1");
+ 
+check_repl(["build/noon", "-rp", "-c", "1+1"], "2");
+check_repl(["build/noon", "-rp", "-c", "5-3"], "2");
+check_repl(["build/noon", "-rp", "-c", "4*5"], "20");
+check_repl(["build/noon", "-rp", "-c", "8/4"], "2");
+ 
+check_repl(["build/noon", "-rp", "-c", "1+2*3"], "7");
+check_repl(["build/noon", "-rp", "-c", "10-2*3"], "4");
+check_repl(["build/noon", "-rp", "-c", "18/3+2"], "8");
+check_repl(["build/noon", "-rp", "-c", "4+6/2"], "7");
+ 
+check_repl(["build/noon", "-rp", "-c", "(1+2)*3"], "9");
+check_repl(["build/noon", "-rp", "-c", "2*(3+(4*5))"], "46");
+check_repl(["build/noon", "-rp", "-c", "((2+3)*4)-5"], "15");
+check_repl(["build/noon", "-rp", "-c", "(10-(2+3))*2"], "10");
+ 
+check_repl(["build/noon", "-rp", "-c", "-5"], "-5");
+check_repl(["build/noon", "-rp", "-c", "--5"], "4");
+check_repl(["build/noon", "-rp", "-c", "++5"], "6");
+check_repl(["build/noon", "-rp", "-c", "-(2+3)"], "-5");
+
+check_repl(["build/noon", "-rp", "-c", "2**3"], "8");
+check_repl(["build/noon", "-rp", "-c", "2**3**2"], "512");
+check_repl(["build/noon", "-rp", "-c", "10%%3"], "3");
+check_repl(["build/noon", "-rp", "-c", "20%%4"], "5");
+ 
+check_repl(["build/noon", "-rp", "-c", "10%3"], "1");
+check_repl(["build/noon", "-rp", "-c", "25%7"], "4");
+ 
+check_repl(["build/noon", "-rp", "-c", "1<<3"], "8");
+check_repl(["build/noon", "-rp", "-c", "8>>1"], "4");
+check_repl(["build/noon", "-rp", "-c", "5&3"], "1");
+check_repl(["build/noon", "-rp", "-c", "5|2"], "7");
+check_repl(["build/noon", "-rp", "-c", "5^1"], "4");
+check_repl(["build/noon", "-rp", "-c", "~1"], "-2");
+ 
+check_repl(["build/noon", "-rp", "-c", "5>3"], "true");
+check_repl(["build/noon", "-rp", "-c", "5<3"], "false");
+check_repl(["build/noon", "-rp", "-c", "5==5"], "true");
+check_repl(["build/noon", "-rp", "-c", "5!=5"], "false");
+check_repl(["build/noon", "-rp", "-c", "5>=5"], "true");
+check_repl(["build/noon", "-rp", "-c", "4<=3"], "false");
+ 
+check_repl(["build/noon", "-rp", "-c", "1&&1"], "true");
+check_repl(["build/noon", "-rp", "-c", "1&&0"], "false");
+check_repl(["build/noon", "-rp", "-c", "0||1"], "true");
+check_repl(["build/noon", "-rp", "-c", "0||0"], "false");
+check_repl(["build/noon", "-rp", "-c", "!0"], "true");
+check_repl(["build/noon", "-rp", "-c", "!5"], "false");
+ 
+check_repl(["build/noon", "-rp", "-c", "5>3&&2<4"], "true");
+check_repl(["build/noon", "-rp", "-c", "5>3&&2>4"], "false");
+check_repl(["build/noon", "-rp", "-c", "(2+3)*4==20"], "true");
+check_repl(["build/noon", "-rp", "-c", "!(5>3)"], "false");
+check_repl(["build/noon", "-rp", "-c", "((1+2)*3)+(4<<1)-5"], "12");
+
+print("\nStrings\n")
+check_repl(["build/noon", "-rp", "-c", "\"Ya\"+\"sser\""], "Yasser");
+check_repl(["build/noon", "-rp", "-c", "\"ha\"*3"], "hahaha");
+check_repl(["build/noon", "-rp", "-c", "3*\"ha\""], "hahaha");
+check_repl(["build/noon", "-rp", "-c", "(\"a\"+\"b\")*4"], "abababab");
+check_repl(["build/noon", "-rp", "-c", "\"a\"==\"a\""], "true");
+check_repl(["build/noon", "-rp", "-c", "\"a\"!=\"b\""], "true");
+check_repl(["build/noon", "-rp", "-c", "\"ab\"*(2+3)"], "ababababab");
+check_repl(["build/noon", "-rp", "-c", "(\"x\"*2)+(\"y\"*3)"], "xxyyy");
+check_repl(["build/noon", "-rp", "-c", "(\"ha\"*3)==\"hahaha\""], "true");
+check_repl(["build/noon", "-rp", "-c", "(\"\"*5)==\"\""], "true");

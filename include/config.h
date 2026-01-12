@@ -36,7 +36,7 @@ extern const char *COLOR_RESET;
 #define TOTAL_ERRORS "%d error%s generated.\n"
 
 // Lexer warnings and errors.
-#define WRN_MULTICHAR_COMMENT "multi-character character constant"
+#define ERROR_MULTICHAR "multi-character character constant"
 #define ERR_UNCLOSED "unclosed %s `%s`"
 #define ERR_UNMATCHED "unmatched %s `%s`"
 

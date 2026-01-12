@@ -12,6 +12,7 @@
 #include "utils/log.h"
 #include "utils/memory.h"
 #include "utils/strings.h"
+#include "interpreter/interpreter.h"
 #include <ctype.h>
 #include <math.h>
 #include <stdbool.h>
@@ -111,8 +112,11 @@ int lexer(void) {
 
       // Handle characters based on the current lexer state.
       if (ctx->state == STATE_QUOTE) {
-        tokenize_strings(c);
+        if (tokenize_strings(c)) {
         continue;
+        } else{
+        	break;
+       }
       }
       if (ctx->state == STATE_MULTI_COMMENT) {
         handle_multi_comment(c);
@@ -172,6 +176,10 @@ int lexer(void) {
       // If parsing was successful, print the AST.
       if (ctx->ast_root) {
         print_ast(ctx->ast_root);
+        
+       // interpreter 
+       interpreter(ctx->ast_root);
+       
         free_node(ctx->ast_root);
         ctx->ast_root = NULL;
       }

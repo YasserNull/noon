@@ -101,11 +101,12 @@ void cleanup(void) {
   debug_func("");
 
   // Print summary only in file mode and if there are logs.
-  if (!ni->is_repl && (ctx->total_errors || ctx->total_warnings || ctx->total_infos)) {
+  if ((ni && ctx) && (!ni->is_repl && (ctx->total_errors || ctx->total_warnings || ctx->total_infos))) {
     print_summary();
   }
 
   // Free all stored lines of source code.
+  if (ctx) {
   if (ctx->lines) {
     for (size_t i = 0; i < ctx->line_number; i++) {
       if (ctx->lines[i])
@@ -182,7 +183,8 @@ void cleanup(void) {
     ctx->line_length = 0;
     ctx->bytes_read = 0;
   }
-
+}
+if (ni) {
   if (ni->is_repl) {
     if (ni->history.count != 0) { // Only save history if there are entries
 
@@ -220,13 +222,14 @@ void cleanup(void) {
       ni->history.count = 0;
     }
   }
+ }
   // Free the main context struct.
   if (ctx) {
     free(ctx);
     ctx = NULL;
   }
 
-  if (ni->is_repl) {
+  if (ni && ni->is_repl) {
     // In REPL mode, don't exit the whole program on error, just reset.
     return;
   }

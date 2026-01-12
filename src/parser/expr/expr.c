@@ -122,6 +122,25 @@ Node *parse_term(void) {
 // Parses the exponentiation operator (**).
 Node *parse_power(void) {
   debug_func("");
-  TokenType operators[] = {TOKEN_POW};
-  return parse_binary_operator(1, operators, parse_unary);
+
+  // parse left operand first
+  Node *left = parse_unary();
+  if (!left)
+    return NULL;
+
+  // If we see '**', we recurse to the RIGHT (right-associative)
+  if (peek(0) && peek(0)->token_type == TOKEN_POW) {
+    Token op = *peek(0);
+    eat(TOKEN_POW);
+
+    Node *right = parse_power();
+    if (!right) {
+      free_node(left);
+      return NULL;
+    }
+
+    return create_binary_op_node(op, left, right);
+  }
+
+  return left;
 }

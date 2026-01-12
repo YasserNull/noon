@@ -1,7 +1,5 @@
 // main.c
-// This is the main entry point of the interpreter.
-// It handles command-line argument parsing, sets up the program's initial
-// state, manages input from files or the REPL, and starts the lexer.
+// Fixed argv parsing and safer handling of -c / --command input.
 
 #include "config.h"
 #include "context.h"
@@ -21,96 +19,136 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 /* handle Ctrl+C signals for both Windows and Unix */
 #ifdef _WIN32
-// Signal handler for Ctrl+C on Windows.
 static BOOL WINAPI handle_ctrl_c(DWORD type) {
   debug_func("type: %d", type);
   if (type == CTRL_C_EVENT) {
-    return TRUE; // stop program cleanly when user presses Ctrl+C
+    return TRUE;
   }
   return FALSE;
 }
 #else
-// Signal handler for SIGINT (Ctrl+C) on Unix-like systems.
 static void handle_sigint(int signum) {
   debug_func("signum: %d", signum);
   (void)signum;
-} // ignore signal on Unix
+}
 #endif
 
-// The main function of the program.
+// create a FILE* stream containing `command` text using tmpfile().
+// tmpfile() is portable and avoids issues with fmemopen and read-only string literals.
+static FILE *open_command_stream(const char *command) {
+  if (!command) return NULL;
+  FILE *f = tmpfile();
+  if (!f) return NULL;
+  size_t len = strlen(command);
+  if (len > 0) {
+    size_t wrote = fwrite(command, 1, len, f);
+    if (wrote != len) {
+      fclose(f);
+      return NULL;
+    }
+  }
+  rewind(f);
+  return f;
+}
+
 int main(int argc, char **argv) {
-  debug_func("argc: %d, argv[]", argc);
+  debug_func("argc: %d", argc);
   disable_colors_if_not_tty(); // disable ANSI colors if not in a TTY terminal
-  atexit(cleanup);
-// Set up the appropriate signal handler for Ctrl+C.
+
+  // Initialize input/ni **before** registering cleanup with atexit.
+  init_input(); // initialize NoonInput global structure
+  atexit(cleanup); // now safe: cleanup can rely on ni being initialized
+  ni->program_name = argv[0];
+
 #ifdef _WIN32
   SetConsoleCtrlHandler(handle_ctrl_c, TRUE);
 #else
   signal(SIGINT, handle_sigint);
 #endif
 
-  init_input(); // initialize NoonInput global structure
-  ni->program_name = argv[0];
-
   /* parse command line arguments */
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
-      ni->debug = 1; // enable debug mode
-      continue;
-    } else if (strcmp(argv[i], "-pt") == 0 || strcmp(argv[i], "--print-tokens") == 0) {
-      ni->dump_tokens = 1; // enable token printing
-      continue;
-    } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--command") == 0) {
-      // execute code directly from command string
-      if (i + 1 >= argc) {
-        fprintf(stderr, ERR_OPTION_REQUIRES_ARGUMENT, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, argv[i]);
-        exit(EXIT_FAILURE);
-      }
-      ni->input = "<string>";
-      const char *command = argv[i + 1];
-      // Open a memory stream to read the command string as a file.
-      ni->file = fmemopen((void *)command, strlen(command), "r");
-      if (!ni->file) {
-        fprintf(stderr, ERR_MEM_STREAM_OPEN, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD);
-        exit(EXIT_FAILURE);
-      }
-      i++; // skip the code argument
-      continue;
-    } else if (strcmp(argv[i], "-rp") == 0 || strcmp(argv[i], "--repl") == 0) {
-      ni->is_repl = 1; // enable REPL mode
-      continue;
-    } else if (strcmp(argv[i], "-pa") == 0 || strcmp(argv[i], "--print-ast") == 0) {
-      ni->dump_ast = 1; // enable AST printing
-      continue;
-    } else if (strcmp(argv[i], "-cs") == 0 || strcmp(argv[i], "--check-syntax") == 0) {
-      ni->check_syntax = 1; // check syntax
-      continue;
-    } else if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i][2]) {
-      // Handle unrecognized long options (e.g., --invalidoption).
-      fprintf(stderr, ERR_UNRECOGNIZED_OPTION, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, argv[i], ni->program_name);
-      exit(EXIT_FAILURE);
-    } else if (argv[i][0] == '-' && argv[i][1]) {
-      // Handle invalid short options (e.g., -z).
-      fprintf(stderr, ERR_INVALID_OPTION, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, argv[i] + 1 /*+1 to skip '-' */, ni->program_name);
+    const char *arg = argv[i];
 
-      exit(EXIT_FAILURE);
-    } else {
-      // handle source file input
-      if (ni->file != NULL) {
-        fprintf(stderr, ERR_MULTIPLE_INPUT_FILES, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, argv[i]);
-        fclose(ni->file);
-        exit(EXIT_FAILURE);
-      }
-      ni->file = fopen(argv[i], "r");
-      if (!ni->file) {
-        fprintf(stderr, ERR_NO_FILE, COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, argv[i]);
-        exit(EXIT_FAILURE);
-      }
-      ni->input = argv[i];
+    if (strcmp(arg, "-d") == 0 || strcmp(arg, "--debug") == 0) {
+      ni->debug = 1;
+      continue;
     }
+
+    if (strcmp(arg, "-pt") == 0 || strcmp(arg, "--print-tokens") == 0) {
+      ni->dump_tokens = 1;
+      continue;
+    }
+
+    if (strcmp(arg, "-c") == 0 || strcmp(arg, "--command") == 0) {
+      // next argv must exist
+      if (i + 1 >= argc) {
+        fprintf(stderr, ERR_OPTION_REQUIRES_ARGUMENT,
+                COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, arg);
+        exit(EXIT_FAILURE);
+      }
+      const char *command = argv[i + 1];
+      ni->input = "<string>";
+      ni->file = open_command_stream(command);
+      if (!ni->file) {
+        fprintf(stderr, ERR_MEM_STREAM_OPEN,
+                COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD);
+        exit(EXIT_FAILURE);
+      }
+      i++; // skip the command argument
+      continue;
+    }
+
+    if (strcmp(arg, "-rp") == 0 || strcmp(arg, "--repl") == 0) {
+      ni->is_repl = 1;
+      continue;
+    }
+
+    if (strcmp(arg, "-pa") == 0 || strcmp(arg, "--print-ast") == 0) {
+      ni->dump_ast = 1;
+      continue;
+    }
+
+    if (strcmp(arg, "-cs") == 0 || strcmp(arg, "--check-syntax") == 0) {
+      ni->check_syntax = 1;
+      continue;
+    }
+
+    // unrecognized long option like --something
+    if (arg[0] == '-' && arg[1] == '-' && arg[2]) {
+      fprintf(stderr, ERR_UNRECOGNIZED_OPTION,
+              COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, arg, ni->program_name);
+      exit(EXIT_FAILURE);
+    }
+
+    // invalid short option (e.g., -z or grouped -abc)
+    if (arg[0] == '-' && arg[1]) {
+      fprintf(stderr, ERR_INVALID_OPTION,
+              COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, arg + 1, ni->program_name);
+      exit(EXIT_FAILURE);
+    }
+
+    // Otherwise treat as a source filename
+    if (ni->file != NULL) {
+      if (ni->file != stdin) {
+        fclose(ni->file);
+      }
+      fprintf(stderr, ERR_MULTIPLE_INPUT_FILES,
+              COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, arg);
+      exit(EXIT_FAILURE);
+    }
+
+    ni->file = fopen(arg, "r");
+    if (!ni->file) {
+      fprintf(stderr, ERR_NO_FILE,
+              COLOR_BOLD, ni->program_name, COLOR_RED, COLOR_RESET, COLOR_BOLD, arg);
+      exit(EXIT_FAILURE);
+    }
+    ni->input = arg;
   }
 
   /* if no file is provided, enter REPL mode */

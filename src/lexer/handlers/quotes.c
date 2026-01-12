@@ -53,7 +53,16 @@ bool tokenize_strings(char c) {
       size_t content = ctx->string_token_length - 2;
       if (content > 1) {
         // Warn if a character literal contains more than one character.
-        print_log(LOG_WARNING, WRN_MULTICHAR_COMMENT, (LogPosition){ctx->quote_line, ctx->quote_index}, ctx->string_token);
+        print_log(LOG_ERROR, ERROR_MULTICHAR, (LogPosition){ctx->quote_line, ctx->quote_index}, ctx->string_token);
+        ctx->has_syntax_error = 1;
+            ctx->string_token_length = 0;
+    if (ctx->string_token)
+      ctx->string_token[0] = '\0';
+    ctx->quote_char = '\0';
+    ctx->quote_line = 0;
+    ctx->quote_index = 0;
+    ctx->state = STATE_NORMAL;
+        return false;
       }
       append_token(TOKEN_CHAR, ctx->string_token, ctx->line_number, ctx->line_index);
     } else {

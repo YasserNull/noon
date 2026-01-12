@@ -27,7 +27,6 @@ const char *token_type_to_string(TokenType type) {
   case TOKEN_CHAR: return "char";
   case TOKEN_STRING: return "string";
   case TOKEN_IDENTIFIER: return "identifier";
-  case TOKEN_BOOLEAN: return "boolean";
   case TOKEN_NULL: return "null";
   case TOKEN_TRUE: return "true";
   case TOKEN_FALSE: return "false";

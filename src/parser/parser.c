@@ -139,7 +139,7 @@ Node *parse_binary_operator(int operator_count, const TokenType *operator_types,
 Node *parse(void) {
   debug_func("");
   // Start parsing from the lowest precedence level (assignment).
-  ctx->ast_root = parse_assignment();
+  ctx->ast_root = parse_statement();
   if (!ctx->ast_root) {
     return NULL;
   }

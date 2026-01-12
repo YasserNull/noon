@@ -555,7 +555,10 @@ ssize_t portable_getline(char **lineptr, size_t *n, FILE *stream) {
       cursor++;
       len++;
       buf[len] = '\0';
-      render_insert_char((char)k, buf + cursor + 1, len - cursor, cursor, &displayed_len, &displayed_cursor);
+
+      // FIX: tail يجب أن يبدأ من buf + cursor (بعد الحرف المُدرج مباشرة)
+      render_insert_char((char)k, buf + cursor, len - cursor, cursor, &displayed_len, &displayed_cursor);
+
       continue;
     }
   }
